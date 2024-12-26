@@ -11,6 +11,7 @@ import lombok.NoArgsConstructor;
 import java.time.LocalDateTime;
 
 @Entity
+// 유니크 제약조건
 @Table(
         name = "lecture_enrollment",
         uniqueConstraints = @UniqueConstraint(columnNames = {"lectureId", "userId"})

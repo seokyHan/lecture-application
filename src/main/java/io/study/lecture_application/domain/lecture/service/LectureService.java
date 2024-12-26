@@ -21,6 +21,7 @@ public class LectureService {
         try {
             return lectureRepository.createLectureEnrollment(lectureInfo.lectureId(), lectureInfo.lectureScheduleId(), lectureInfo.userId());
         } catch (DataIntegrityViolationException e) {
+            // 유니크 제약 조건에 의해 중복 신청의 경우 예외 발생
             throw new CustomException(DUPLICATE_ENROLLMENT);
         }
     }

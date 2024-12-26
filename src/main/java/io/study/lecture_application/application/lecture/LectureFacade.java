@@ -38,6 +38,7 @@ public class LectureFacade {
         val lecture = lectureQueryService.getLectureById(lectureId);
         val lectureSchedule = lectureQueryService.getLectureScheduleById(lectureScheduleId, true);
 
+        // 정원 초과할 경우 예외 발생
         if (lectureSchedule.enrolledCount() + 1 > lectureSchedule.capacity()) {
             throw new CustomException(ENROLLMENT_EXCEED_CAPACITY);
         }

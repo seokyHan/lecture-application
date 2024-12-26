@@ -20,6 +20,8 @@ import org.springframework.boot.test.context.SpringBootTest;
 
 import java.time.LocalDateTime;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.stream.IntStream;
 
 import static io.study.lecture_application.common.code.LectureErrorCode.*;
 import static org.assertj.core.api.Assertions.assertThat;
@@ -221,6 +223,81 @@ class LectureFacadeIntegrationTest {
                                 lectureScheduleEntities.get(1).getEndAt()
                         )
                 );
+    }
+
+
+    @Test
+    @DisplayName("선착순 30명 특강 신청 성공 - 만일 30명이 넘어갈 경우 예외 발생")
+    void successfullyEnrollLectureWithConcurrencyTest() {
+        // given
+        int threadCount = 30;
+        List<UsersEntity> userEntities = usersJpaRepository.saveAll(
+                IntStream.range(0, threadCount)
+                        .mapToObj(i -> new UsersEntity(null, "name" + i, null, null))
+                        .toList()
+        );
+        LectureEntity lectureEntity = lectureJpaRepository.save(new LectureEntity(null, "title", "description", 3L, null, null));
+        LectureScheduleEntity lectureScheduleEntity = lectureScheduleJpaRepository.save(
+                new LectureScheduleEntity(null, lectureEntity.getId(), 30, 0,
+                        LocalDateTime.now(),LocalDateTime.now().plusHours(1), null, null
+                )
+        );
+        Long lectureId = lectureEntity.getId();
+        Long lectureScheduleId = lectureScheduleEntity.getId();
+
+        // when
+        List<CompletableFuture<Void>> futures = IntStream.range(0, threadCount)
+                .mapToObj(i -> CompletableFuture.runAsync(() -> {
+                    UsersEntity userEntity = userEntities.get(i);
+                    Long userId = userEntity.getId();
+                    lectureFacade.enrollLecture(lectureId, lectureScheduleId, userId);
+                }))
+                .toList();
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+        LectureScheduleEntity updatedLectureScheduleEntity = lectureScheduleJpaRepository.findById(lectureScheduleId).get();
+
+        // then
+        assertEquals(updatedLectureScheduleEntity.getEnrolledCount(), threadCount);
+    }
+
+    @Test
+    @DisplayName("동시에 동일한 특강에 40명 신청시 30명만 성공한다.")
+    void successfullyEnrollLectureWithConcurrencyWhenExceedCapacityTest() {
+        // given
+        int threadCount = 40;
+        List<UsersEntity> userEntities = usersJpaRepository.saveAll(
+                IntStream.range(0, threadCount)
+                        .mapToObj(i -> new UsersEntity(null, "name" + i, null, null))
+                        .toList()
+        );
+        LectureEntity lectureEntity = lectureJpaRepository.save(
+                new LectureEntity(null, "title", "description", 2L, null, null));
+        LectureScheduleEntity lectureScheduleEntity = lectureScheduleJpaRepository.save(
+                new LectureScheduleEntity(null, lectureEntity.getId(), 30, 0, LocalDateTime.now(),
+                        LocalDateTime.now().plusHours(1), null, null));
+        Long lectureId = lectureEntity.getId();
+        Long lectureScheduleId = lectureScheduleEntity.getId();
+
+        // when
+        List<CompletableFuture<Void>> futures = IntStream.range(0, threadCount)
+                .mapToObj(i -> CompletableFuture.runAsync(() -> {
+                    try {
+                        final UsersEntity userEntity = userEntities.get(i);
+                        final Long userId = userEntity.getId();
+                        lectureFacade.enrollLecture(lectureId, lectureScheduleId, userId);
+                    } catch (CustomException e) {
+                        assertThat(e.getMessage()).isEqualTo(ENROLLMENT_EXCEED_CAPACITY
+                                .getMessage());
+                    }
+                }))
+                .toList();
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+        LectureScheduleEntity updatedLectureScheduleEntity = lectureScheduleJpaRepository.findById(lectureScheduleId).get();
+        List<LectureEnrollmentEntity> lectureEnrollments = lectureEnrollmentJpaRepository.findAllByLectureScheduleId(lectureScheduleId);
+
+        // then
+        assertEquals(updatedLectureScheduleEntity.getEnrolledCount(),30);
+        assertThat(lectureEnrollments).hasSize(30);
     }
 
 

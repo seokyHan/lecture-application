@@ -300,5 +300,43 @@ class LectureFacadeIntegrationTest {
         assertThat(lectureEnrollments).hasSize(30);
     }
 
+    @Test
+    @DisplayName("동일 유저 정보로 동시에 5번 신청했을 때 1번만 신청 성공한다.")
+    void successfullyEnrollLectureWithConcurrencyWhenAlreadyEnrolledTest() {
+        // given
+        int threadCount = 5;
+        UsersEntity userEntity = usersJpaRepository.save(new UsersEntity(null, "name", null, null));
+        LectureEntity lectureEntity = lectureJpaRepository.save(new LectureEntity(null, "title", "description", 2L, null, null));
+        List<LectureScheduleEntity> lectureScheduleEntities = lectureScheduleJpaRepository.saveAll(
+                IntStream.range(0, threadCount)
+                        .mapToObj(i -> new LectureScheduleEntity(null, lectureEntity.getId(), 30, 0,
+                                LocalDateTime.now(), LocalDateTime.now().plusHours(1), null, null))
+                        .toList()
+        );
+        Long userId = userEntity.getId();
+        Long lectureId = lectureEntity.getId();
+
+        // when
+        final List<CompletableFuture<Void>> futures = IntStream.range(0, threadCount)
+                .mapToObj(i -> CompletableFuture.runAsync(() -> {
+                    try {
+                        final Long lectureScheduleId = lectureScheduleEntities.get(i).getId();
+                        lectureFacade.enrollLecture(lectureId, lectureScheduleId, userId);
+                    } catch (CustomException e) {
+                        // 중복 신청의 경우 예외 발생
+                        assertEquals(e.getMessage(), DUPLICATE_ENROLLMENT.getMessage());
+                    }
+                }))
+                .toList();
+        CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
+        List<LectureEnrollmentEntity> lectureEnrollments = lectureEnrollmentJpaRepository.findAllByLectureId(lectureId);
+        LectureEnrollmentEntity lectureEnrollment = lectureEnrollments.get(0);
+
+        // then
+        assertThat(lectureEnrollments).hasSize(1);
+        assertEquals(lectureEnrollment.getLectureId(), lectureId);
+        assertEquals(lectureEnrollment.getUserId(), userId);
+    }
+
 
 }
